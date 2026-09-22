@@ -4,7 +4,7 @@ import { StartOverlay } from "./start-overlay";
 
 export function FrondeApp() {
   return (
-    <main className="relative h-[100dvh] w-full overflow-hidden bg-bg text-fg">
+    <main className="fixed inset-0 h-[100dvh] w-full overflow-hidden overscroll-none bg-bg text-fg select-none">
       <OrbitCanvas />
       <Hud />
       <StartOverlay />

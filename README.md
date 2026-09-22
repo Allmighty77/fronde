@@ -9,6 +9,8 @@ mouvement lors des collisions.
 
 ## Contrôles
 
+### Ordinateur
+
 - **Clic-glisser** : lancer un corps (la longueur donne la vitesse)
 - **Clic droit / deux doigts** : déplacer la vue
 - **Molette / pincement** : zoomer
@@ -18,19 +20,22 @@ mouvement lors des collisions.
 - **T** : traînées
 - **F** : suivre le barycentre
 
+### Téléphone
+
+- **Un doigt, glisser** : lancer
+- **Déplacer** : bouton dédié, ou deux doigts
+- **Zoom** : boutons +/−, ou pincement
+- **Masse** : les cinq cercles (taille = masse)
+- **Temps** : bouton ×1, ×2, …
+- **Scènes / traînées / suivi** : chevron en bas à droite
+
 ## Scènes
 
-Vide, soleil central, binaire, chorégraphie en huit, mini-système.
+Vide, étoile centrale, binaire, chorégraphie en huit, mini-système.
 
-## Structure
+## Développement
 
-| Chemin | Rôle |
-| --- | --- |
-| `src/lib/sim/physics.ts` | Verlet, gravité n-corps, fusions |
-| `src/lib/sim/scenes.ts` | Préréglages (huit, binaire, système) |
-| `src/lib/sim/world.ts` | Caméra, spawn, particules |
-| `src/components/orbit/` | Canvas, HUD, overlay |
-
-## Licence
-
-MIT
+```bash
+npm install
+npm run dev
+```
