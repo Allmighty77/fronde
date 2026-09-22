@@ -9,7 +9,11 @@ export const Route = createRootRoute({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      {
+        name: "viewport",
+        content:
+          "width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no",
+      },
       { title: APP_NAME },
       {
         name: "description",
@@ -17,6 +21,9 @@ export const Route = createRootRoute({
           "Simulateur de gravité orbitale. Cliquez-glissez pour lancer des planètes, observer les orbites, les frondes et les collisions.",
       },
       { name: "theme-color", content: "#08090b" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
