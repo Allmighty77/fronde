@@ -3,7 +3,7 @@ import { playLaunch, playMerge, unlockAudio } from "@/lib/sim/audio";
 import { DT, barycenter } from "@/lib/sim/physics";
 import { worldOf } from "@/lib/sim/camera";
 import { renderWorld } from "@/lib/sim/render";
-import { useSimStore } from "@/lib/sim/store";
+import { useSimStore, type Tool } from "@/lib/sim/store";
 import { World, type AimState } from "@/lib/sim/world";
 import type { MassKind, SceneId } from "@/lib/sim/types";
 
@@ -37,38 +37,9 @@ export function OrbitCanvas() {
       follow: useSimStore.getState().follow,
       scene: useSimStore.getState().scene as SceneId,
       loadToken: useSimStore.getState().loadToken,
+      tool: useSimStore.getState().tool as Tool,
+      zoomSeq: useSimStore.getState().zoomSeq,
     };
-
-    const unsub = useSimStore.subscribe((s) => {
-      if (s.loadToken !== ui.loadToken) {
-        ui.scene = s.scene;
-        ui.loadToken = s.loadToken;
-        if (s.scene === "empty") {
-          world.clear();
-        } else {
-          world.load(s.scene);
-        }
-        useSimStore.getState().setBodyCount(world.bodies.length);
-      }
-      if (s.follow !== ui.follow) {
-        const com = barycenter(world.bodies);
-        if (s.follow) {
-          world.camera.panX = world.camera.x - com.x;
-          world.camera.panY = world.camera.y - com.y;
-        } else {
-          world.camera.panX = world.camera.x;
-          world.camera.panY = world.camera.y;
-        }
-      }
-      ui.started = s.started;
-      ui.mass = s.mass;
-      ui.timeScale = s.timeScale;
-      ui.paused = s.paused;
-      ui.trails = s.trails;
-      ui.follow = s.follow;
-    });
-
-    useSimStore.getState().setBodyCount(world.bodies.length);
 
     const pointers = new Map<number, PointerRec>();
     const aim: AimState = {
@@ -89,6 +60,55 @@ export function OrbitCanvas() {
     let countTick = 0;
     let cssW = 1;
     let cssH = 1;
+    let fitted = false;
+
+    const fitNarrowView = () => {
+      if (cssW > 0 && cssW < 640) {
+        world.camera.zoom *= 1.22;
+      }
+    };
+
+    useSimStore.getState().setBodyCount(world.bodies.length);
+
+    const unsub = useSimStore.subscribe((s) => {
+      if (s.loadToken !== ui.loadToken) {
+        ui.scene = s.scene;
+        ui.loadToken = s.loadToken;
+        if (s.scene === "empty") {
+          world.clear();
+        } else {
+          world.load(s.scene);
+        }
+        fitNarrowView();
+        useSimStore.getState().setBodyCount(world.bodies.length);
+      }
+      if (s.follow !== ui.follow) {
+        const com = barycenter(world.bodies);
+        if (s.follow) {
+          world.camera.panX = world.camera.x - com.x;
+          world.camera.panY = world.camera.y - com.y;
+        } else {
+          world.camera.panX = world.camera.x;
+          world.camera.panY = world.camera.y;
+        }
+      }
+      if (s.zoomSeq !== ui.zoomSeq) {
+        ui.zoomSeq = s.zoomSeq;
+        world.zoomAt(cssW * 0.5, cssH * 0.5, cssW, cssH, s.zoomFactor);
+      }
+      if (s.tool !== ui.tool) {
+        ui.tool = s.tool;
+        aiming = false;
+        aim.active = false;
+        aim.path = null;
+      }
+      ui.started = s.started;
+      ui.mass = s.mass;
+      ui.timeScale = s.timeScale;
+      ui.paused = s.paused;
+      ui.trails = s.trails;
+      ui.follow = s.follow;
+    });
 
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
@@ -98,30 +118,42 @@ export function OrbitCanvas() {
       canvas.width = Math.floor(cssW * dpr);
       canvas.height = Math.floor(cssH * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (!fitted) {
+        fitted = true;
+        fitNarrowView();
+      }
     };
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
+    const onVp = () => resize();
+    window.visualViewport?.addEventListener("resize", onVp);
 
     const local = (e: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
       return { x: e.clientX - rect.left, y: e.clientY - rect.top };
     };
 
+    const capture = (e: PointerEvent) => {
+      try {
+        if (e.pointerId >= 0) canvas.setPointerCapture(e.pointerId);
+      } catch {
+        /* some input paths reject capture */
+      }
+    };
+
     const onPointerDown = (e: PointerEvent) => {
       if (!ui.started) return;
+      e.preventDefault();
       unlockAudio();
-      try {
-        if (e.pointerId) canvas.setPointerCapture(e.pointerId);
-      } catch {
-        /* some input paths (pointerId 0) reject capture */
-      }
+      capture(e);
       const p = local(e);
+      const isPrimary = e.button === 0 || e.pointerType !== "mouse";
       pointers.set(e.pointerId, {
         id: e.pointerId,
         x: p.x,
         y: p.y,
-        button: e.button,
+        button: isPrimary ? 0 : e.button,
       });
 
       if (pointers.size === 2) {
@@ -137,13 +169,13 @@ export function OrbitCanvas() {
         return;
       }
 
-      if (e.button === 1 || e.button === 2 || e.altKey) {
+      if (e.button === 1 || e.button === 2 || e.altKey || ui.tool === "pan") {
         panning = true;
         lastPan = p;
         return;
       }
 
-      if (e.button === 0) {
+      if (isPrimary) {
         const wpt = worldOf(p.x, p.y, world.camera, cssW, cssH);
         aiming = true;
         aim.active = true;
@@ -158,6 +190,7 @@ export function OrbitCanvas() {
     const onPointerMove = (e: PointerEvent) => {
       const rec = pointers.get(e.pointerId);
       if (!rec) return;
+      if (aiming || panning || pointers.size > 0) e.preventDefault();
       const p = local(e);
       rec.x = p.x;
       rec.y = p.y;
@@ -198,16 +231,27 @@ export function OrbitCanvas() {
       }
     };
 
-    const endPointer = (e: PointerEvent) => {
+    const endPointer = (e: PointerEvent, spawn: boolean) => {
       const rec = pointers.get(e.pointerId);
       pointers.delete(e.pointerId);
+      try {
+        if (e.pointerId >= 0) canvas.releasePointerCapture(e.pointerId);
+      } catch {
+        /* already released */
+      }
       if (pointers.size < 2) pinchDist = 0;
       if (pointers.size === 0) {
         panning = false;
         lastPan = null;
       }
       if (!rec) return;
-      if (aiming && rec.button === 0 && pointers.size === 0) {
+      if (
+        spawn &&
+        aiming &&
+        rec.button === 0 &&
+        pointers.size === 0 &&
+        ui.tool === "launch"
+      ) {
         aiming = false;
         aim.active = false;
         const spawned = world.spawn(ui.mass, aim.x, aim.y, aim.vx, aim.vy);
@@ -216,8 +260,15 @@ export function OrbitCanvas() {
           useSimStore.getState().setBodyCount(world.bodies.length);
         }
         aim.path = null;
+      } else if (aiming && pointers.size === 0) {
+        aiming = false;
+        aim.active = false;
+        aim.path = null;
       }
     };
+
+    const onPointerUp = (e: PointerEvent) => endPointer(e, true);
+    const onPointerAbort = (e: PointerEvent) => endPointer(e, false);
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -240,6 +291,11 @@ export function OrbitCanvas() {
       if (e.code === "KeyC") useSimStore.getState().requestClear();
       if (e.code === "KeyT") useSimStore.getState().toggleTrails();
       if (e.code === "KeyF") useSimStore.getState().toggleFollow();
+      if (e.code === "KeyH") {
+        useSimStore.getState().setTool(
+          useSimStore.getState().tool === "pan" ? "launch" : "pan",
+        );
+      }
       if (e.code === "Digit0") world.resetView();
       if (e.code === "Digit1") useSimStore.getState().setMass("dust");
       if (e.code === "Digit2") useSimStore.getState().setMass("moon");
@@ -254,12 +310,14 @@ export function OrbitCanvas() {
       }
     };
 
-    canvas.addEventListener("pointerdown", onPointerDown);
-    canvas.addEventListener("pointermove", onPointerMove);
-    canvas.addEventListener("pointerup", endPointer);
-    canvas.addEventListener("pointercancel", endPointer);
+    canvas.addEventListener("pointerdown", onPointerDown, { passive: false });
+    canvas.addEventListener("pointermove", onPointerMove, { passive: false });
+    canvas.addEventListener("pointerup", onPointerUp);
+    canvas.addEventListener("pointercancel", onPointerAbort);
+    canvas.addEventListener("lostpointercapture", onPointerAbort);
     canvas.addEventListener("wheel", onWheel, { passive: false });
     canvas.addEventListener("contextmenu", onContext);
+    window.addEventListener("gesturestart", onContext, { passive: false });
     window.addEventListener("keydown", onKey);
 
     const loop = (now: number) => {
@@ -271,7 +329,7 @@ export function OrbitCanvas() {
       const merges: { mass: number }[] = [];
       while (acc >= DT && steps < 24) {
         const ev = world.step(DT, ui.trails);
-        for (const e of ev) merges.push(e);
+        for (const event of ev) merges.push(event);
         acc -= DT;
         steps++;
       }
@@ -305,12 +363,15 @@ export function OrbitCanvas() {
       cancelAnimationFrame(raf);
       unsub();
       ro.disconnect();
+      window.visualViewport?.removeEventListener("resize", onVp);
       canvas.removeEventListener("pointerdown", onPointerDown);
       canvas.removeEventListener("pointermove", onPointerMove);
-      canvas.removeEventListener("pointerup", endPointer);
-      canvas.removeEventListener("pointercancel", endPointer);
+      canvas.removeEventListener("pointerup", onPointerUp);
+      canvas.removeEventListener("pointercancel", onPointerAbort);
+      canvas.removeEventListener("lostpointercapture", onPointerAbort);
       canvas.removeEventListener("wheel", onWheel);
       canvas.removeEventListener("contextmenu", onContext);
+      window.removeEventListener("gesturestart", onContext);
       window.removeEventListener("keydown", onKey);
     };
   }, []);
@@ -318,8 +379,8 @@ export function OrbitCanvas() {
   return (
     <canvas
       ref={canvasRef}
-      className="absolute inset-0 size-full touch-none"
-      aria-label="Ciel orbital — cliquez-glissez pour lancer un corps"
+      className="absolute inset-0 size-full touch-none select-none"
+      aria-label="Ciel orbital — glissez pour lancer un corps"
     />
   );
 }
